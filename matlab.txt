@@ -1,0 +1,125 @@
+# eggImage = imread('eggs.jpg'); % Load egg image
+# imshow(eggImage);
+# title('Original Egg Image');
+
+
+# hsvImage = rgb2hsv(eggImage); % Convert to HSV color space
+# hueChannel = hsvImage(:,:,1); % Extract Hue channel
+# imshow(hueChannel);
+# title('Hue Channel of Egg Image');
+
+
+
+
+
+classdef EggDetector < handle
+    properties
+        % Color thresholds for good and bad eggs
+        goodEggLower
+        goodEggUpper
+        badEggLower
+        badEggUpper
+    end
+    
+    methods
+        function obj = EggDetector()
+            % Initialize color thresholds in HSV
+            obj.goodEggLower = [0, 0, 0.86];    % Very light white
+            obj.goodEggUpper = [1, 0.12, 1];    % Allow all hues, low saturation
+            
+            obj.badEggLower = [0.056, 0.08, 0.78]; % Ivory color
+            obj.badEggUpper = [0.111, 0.24, 1];    % Yellowish white
+        end
+        
+        function results = detectEggs(obj, frame)
+            % Convert frame to HSV
+            hsvFrame = rgb2hsv(frame);
+            
+            % Create masks for good and bad eggs
+            goodMask = obj.createMask(hsvFrame, obj.goodEggLower, obj.goodEggUpper);
+            badMask = obj.createMask(hsvFrame, obj.badEggLower, obj.badEggUpper);
+            
+            % Process masks
+            goodMask = imopen(goodMask, strel('disk', 5));
+            badMask = imopen(badMask, strel('disk', 5));
+            
+            % Find connected components
+            goodStats = regionprops(goodMask, 'BoundingBox', 'Area');
+            badStats = regionprops(badMask, 'BoundingBox', 'Area');
+            
+            % Initialize results structure
+            results.goodEggs = [];
+            results.badEggs = [];
+            results.visualization = frame;
+            
+            % Process good eggs
+            for i = 1:length(goodStats)
+                if goodStats(i).Area > 500
+                    bbox = goodStats(i).BoundingBox;
+                    results.goodEggs = [results.goodEggs; bbox];
+                    results.visualization = insertShape(results.visualization, 'Rectangle', bbox, ...
+                        'Color', 'green', 'LineWidth', 2);
+                    results.visualization = insertText(results.visualization, ...
+                        [bbox(1), bbox(2)-10], 'Good', 'BoxColor', 'green', ...
+                        'TextColor', 'white');
+                end
+            end
+            
+            % Process bad eggs
+            for i = 1:length(badStats)
+                if badStats(i).Area > 500
+                    bbox = badStats(i).BoundingBox;
+                    results.badEggs = [results.badEggs; bbox];
+                    results.visualization = insertShape(results.visualization, 'Rectangle', bbox, ...
+                        'Color', 'red', 'LineWidth', 2);
+                    results.visualization = insertText(results.visualization, ...
+                        [bbox(1), bbox(2)-10], 'Bad', 'BoxColor', 'red', ...
+                        'TextColor', 'white');
+                end
+            end
+        end
+    end
+    
+    methods (Static)
+        function mask = createMask(hsvFrame, lower, upper)
+            % Create binary mask based on HSV thresholds
+            mask = (hsvFrame(:,:,1) >= lower(1)) & (hsvFrame(:,:,1) <= upper(1)) & ...
+                  (hsvFrame(:,:,2) >= lower(2)) & (hsvFrame(:,:,2) <= upper(2)) & ...
+                  (hsvFrame(:,:,3) >= lower(3)) & (hsvFrame(:,:,3) <= upper(3));
+        end
+    end
+end
+
+% Example usage script
+function main()
+    % Initialize camera
+    cam = webcam();
+    detector = EggDetector();
+    
+    figure('Name', 'Egg Detection');
+    
+    while true
+        % Capture frame
+        frame = snapshot(cam);
+        
+        % Process frame
+        results = detector.detectEggs(frame);
+        
+        % Display results
+        imshow(results.visualization);
+        title(sprintf('Good Eggs: %d, Bad Eggs: %d', ...
+            size(results.goodEggs, 1), size(results.badEggs, 1)));
+        
+        drawnow;
+        
+        % Check for quit condition
+        if ~isempty(get(gcf, 'CurrentCharacter')) && ...
+           get(gcf, 'CurrentCharacter') == 'q'
+            break;
+        end
+    end
+    
+    % Clean up
+    clear cam;
+    close all;
+end
